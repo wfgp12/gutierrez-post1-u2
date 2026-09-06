@@ -55,5 +55,68 @@ registro dinámico permite agregar un formato nuevo llamando a
 código existente en `ReportFactoryRegistry`, `ReportExportService` ni
 `Main`.
 
+### Decisión 3 — Builder vs. constructor telescópico vs. setters (Parte 2)
+**Patrón elegido:** Builder (`ExportConfig.Builder`).
+
+**Justificación:** `ExportConfig` tiene 1 parámetro obligatorio
+(`format`) y 8 opcionales. Se descartaron las otras dos opciones:
+
+- **Constructor con los 9 parámetros:** varios son del mismo tipo
+  (`String`, `boolean`), por lo que el cliente puede invertir el
+  orden de los argumentos sin que el compilador lo detecte.
+- **Clase mutable con setters sueltos:** el objeto puede quedar a
+  medio configurar, y no existe un punto único donde validar que la
+  combinación de valores sea consistente (por ejemplo, pedir
+  `compress=true` sin especificar `outputPath`).
+
+El Builder resuelve ambos problemas: expone métodos encadenables
+autodescriptivos (sin depender del orden) y centraliza la validación
+de consistencia en `build()`, antes de que exista un objeto a medio
+construir — `new ExportConfig.Builder("pdf").compress(true).build()`
+lanza `IllegalStateException` en vez de producir un objeto inválido.
+
+### Decisión 4 — ¿ReportFactoryRegistry necesita ser Singleton? (Parte 2)
+**Conclusión:** NO conviene Singleton.
+
+**Justificación**, con base en los criterios objetivos del material
+teórico:
+
+- **Identidad de objeto:** nada en el proyecto necesita pasar el
+  registro como objeto (no se inyecta por constructor, no se
+  sustituye por un mock, no implementa una interfaz); se usa
+  invocando métodos estáticos directamente.
+- **Inicialización costosa:** el bloque `static` solo llena un `Map`
+  con tres entradas — trabajo trivial en el classloading, sin
+  lectura de archivos ni conexiones que justifiquen una
+  inicialización perezosa.
+- **Fuente única de verdad:** el campo `static final Map` ya
+  garantiza un único registro compartido en toda la JVM, sin
+  necesitar la semántica de "instancia" que aporta Singleton.
+- **Escenarios futuros razonables:** no existe ningún escenario
+  concreto (ni siquiera el CSV planeado) que requiera más de un
+  registro independiente. Si ese escenario apareciera (por ejemplo,
+  un registro distinto por institución en una plataforma
+  multi-tenant), Singleton dejaría de ser apropiado por la razón
+  opuesta: se necesitarían múltiples instancias, no una sola.
+
+Convertir `ReportFactoryRegistry` en un Singleton clásico (constructor
+privado con guardas + `getInstance()` + eventual sincronización)
+agregaría ceremonia sin resolver ningún problema real que el `Map`
+estático no resuelva ya.
+
 ## Herramientas utilizadas
 - Java 17, Apache Maven, VS Code, Git, GitHub
+
+## Conclusiones
+Este post-contenido mostró que elegir un patrón creacional no es un
+paso mecánico: las mismas preguntas diagnósticas (¿un producto o una
+familia?, ¿qué pasa al extender?, ¿dónde está el riesgo real?)
+llevaron a Abstract Factory en la Parte 1 y, aplicadas a un problema
+distinto, habrían llevado a Factory Method. La Parte 2 reforzó que
+"parece un buen candidato para X" no basta como justificación: Builder
+se eligió porque resolvía un problema concreto (validar consistencia
+antes de construir), y Singleton se descartó explícitamente para
+`ReportFactoryRegistry` porque ningún criterio objetivo lo respaldaba,
+pese a ser la "costumbre" para clases de registro centralizado. El
+aprendizaje central es que el valor de un patrón está en el problema
+que resuelve, no en aplicarlo por hábito.
